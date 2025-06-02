@@ -12,10 +12,11 @@ import (
 )
 
 type mockDynamoDBClient struct {
-	queryOutput   *dynamodb.QueryOutput
-	putItemOutput *dynamodb.PutItemOutput
-	queryErr      error
-	putItemErr    error
+	queryOutput        *dynamodb.QueryOutput
+	batchWriteOutput   *dynamodb.BatchWriteItemOutput
+	queryErr           error
+	batchWriteItemErr  error
+	capturedBatchWrite *dynamodb.BatchWriteItemInput
 }
 
 func (m *mockDynamoDBClient) Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
@@ -25,11 +26,12 @@ func (m *mockDynamoDBClient) Query(ctx context.Context, params *dynamodb.QueryIn
 	return m.queryOutput, nil
 }
 
-func (m *mockDynamoDBClient) PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	if m.putItemErr != nil {
-		return nil, m.putItemErr
+func (m *mockDynamoDBClient) BatchWriteItem(ctx context.Context, params *dynamodb.BatchWriteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
+	m.capturedBatchWrite = params
+	if m.batchWriteItemErr != nil {
+		return nil, m.batchWriteItemErr
 	}
-	return m.putItemOutput, nil
+	return m.batchWriteOutput, nil
 }
 
 func TestGetProcessedSnapshots(t *testing.T) {
@@ -106,53 +108,119 @@ func TestGetProcessedSnapshots(t *testing.T) {
 	}
 }
 
-func TestUpdateSnapshotState(t *testing.T) {
+func TestBatchUpdateSnapshotStates(t *testing.T) {
 	ctx := context.Background()
 	region := "us-west-2"
 	now := time.Now()
+	
+	// Set environment variables for tests
+	t.Setenv("DYNAMODB_TABLE_NAME", "test-table")
+	t.Setenv("SCHEDULE_EXPRESSION", "rate(10 minutes)")
+	t.Setenv("SNAPSHOT_AGE_DAYS", "7")
 
 	tests := []struct {
-		name     string
-		client   *mockDynamoDBClient
-		snapshot SnapshotInfo
-		wantErr  bool
+		name      string
+		client    *mockDynamoDBClient
+		snapshots []SnapshotInfo
+		wantErr   bool
 	}{
 		{
-			name: "successfully updates snapshot state",
+			name: "successfully updates multiple snapshots",
 			client: &mockDynamoDBClient{
-				putItemOutput: &dynamodb.PutItemOutput{},
+				batchWriteOutput: &dynamodb.BatchWriteItemOutput{},
 			},
-			snapshot: SnapshotInfo{
-				SnapshotID:   "snap-1",
-				SnapshotType: "instance",
-				CreateTime:   now,
-				Status:       "available",
+			snapshots: []SnapshotInfo{
+				{
+					SnapshotID:   "snap-1",
+					SnapshotType: "instance",
+					CreateTime:   now,
+					Status:       "available",
+				},
+				{
+					SnapshotID:   "snap-2",
+					SnapshotType: "cluster",
+					CreateTime:   now,
+					Status:       "creating",
+				},
 			},
 			wantErr: false,
 		},
 		{
+			name: "handles empty snapshots list",
+			client: &mockDynamoDBClient{
+				batchWriteOutput: &dynamodb.BatchWriteItemOutput{},
+			},
+			snapshots: []SnapshotInfo{},
+			wantErr:   false,
+		},
+		{
 			name: "handles DynamoDB error",
 			client: &mockDynamoDBClient{
-				putItemErr: fmt.Errorf("DynamoDB error"),
+				batchWriteItemErr: fmt.Errorf("DynamoDB batch write error"),
 			},
-			snapshot: SnapshotInfo{
-				SnapshotID:   "snap-1",
-				SnapshotType: "instance",
-				CreateTime:   now,
-				Status:       "available",
+			snapshots: []SnapshotInfo{
+				{
+					SnapshotID:   "snap-1",
+					SnapshotType: "instance",
+					CreateTime:   now,
+					Status:       "available",
+				},
 			},
 			wantErr: true,
+		},
+		{
+			name: "handles large batch (>25 items)",
+			client: &mockDynamoDBClient{
+				batchWriteOutput: &dynamodb.BatchWriteItemOutput{},
+			},
+			snapshots: func() []SnapshotInfo {
+				snapshots := make([]SnapshotInfo, 30)
+				for i := 0; i < 30; i++ {
+					snapshots[i] = SnapshotInfo{
+						SnapshotID:   fmt.Sprintf("snap-%d", i),
+						SnapshotType: "instance",
+						CreateTime:   now,
+						Status:       "available",
+					}
+				}
+				return snapshots
+			}(),
+			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := UpdateSnapshotState(ctx, tt.client, region, tt.snapshot)
+			// Reset captured batch write for each test
+			tt.client.capturedBatchWrite = nil
+			
+			err := BatchUpdateSnapshotStates(ctx, tt.client, region, tt.snapshots)
 
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+				
+				// For non-empty snapshots, verify the batch write was called correctly
+				if len(tt.snapshots) > 0 {
+					assert.NotNil(t, tt.client.capturedBatchWrite)
+					
+					// For large batches, verify it was split correctly
+					if len(tt.snapshots) > 25 {
+						// Should have been called at least once
+						assert.NotEmpty(t, tt.client.capturedBatchWrite.RequestItems)
+						
+						// Check that the table name is correct
+						tableName := "test-table"
+						_, exists := tt.client.capturedBatchWrite.RequestItems[tableName]
+						assert.True(t, exists, "Table name should be %s", tableName)
+					} else {
+						tableName := "test-table"
+						requests, exists := tt.client.capturedBatchWrite.RequestItems[tableName]
+						assert.True(t, exists, "Table name should be %s", tableName)
+						assert.Len(t, requests, len(tt.snapshots))
+					}
+				}
 			}
 		})
 	}

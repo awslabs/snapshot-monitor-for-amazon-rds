@@ -29,6 +29,7 @@ func ProcessSnapshotChanges(ctx context.Context, filteredSnapshots []storage.Sna
 	region string, snsClient SNSClient, ddbClient storage.DDBClient) error {
 
 	var statusChanges []SnapshotStatusChange
+	var snapshotsToUpdate []storage.SnapshotInfo
 
 	for _, snapshot := range filteredSnapshots {
 		currentStatus := snapshot.Status
@@ -45,6 +46,7 @@ func ProcessSnapshotChanges(ctx context.Context, filteredSnapshots []storage.Sna
 					DBInstance:     snapshot.SnapshotID,
 					Region:         region,
 				})
+				snapshotsToUpdate = append(snapshotsToUpdate, snapshot)
 			}
 		}
 	}
@@ -61,16 +63,10 @@ func ProcessSnapshotChanges(ctx context.Context, filteredSnapshots []storage.Sna
 			return fmt.Errorf("unable to publish SNS message: %v", err)
 		}
 
-		for _, change := range statusChanges {
-			for _, snapshot := range filteredSnapshots {
-				if snapshot.SnapshotID == change.SnapshotID {
-					err = storage.UpdateSnapshotState(ctx, ddbClient, region, snapshot)
-					if err != nil {
-						return fmt.Errorf("failed to update snapshot state for %s: %v", change.SnapshotID, err)
-					}
-					break
-				}
-			}
+		// Update all snapshot states in a single batch operation
+		err = storage.BatchUpdateSnapshotStates(ctx, ddbClient, region, snapshotsToUpdate)
+		if err != nil {
+			return fmt.Errorf("failed to batch update snapshot states: %v", err)
 		}
 	}
 

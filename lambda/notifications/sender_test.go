@@ -24,12 +24,12 @@ type mockDynamoDBClient struct {
 	err error
 }
 
-func (m *mockDynamoDBClient) PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	return &dynamodb.PutItemOutput{}, m.err
-}
-
 func (m *mockDynamoDBClient) Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 	return &dynamodb.QueryOutput{}, m.err
+}
+
+func (m *mockDynamoDBClient) BatchWriteItem(ctx context.Context, params *dynamodb.BatchWriteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
+	return &dynamodb.BatchWriteItemOutput{}, m.err
 }
 
 func TestContains(t *testing.T) {

@@ -38,17 +38,32 @@ go mod download
  cdk deploy -c notification_email=<email address to receive snapshot summary report>
 ```
 
-3. To customize the deployment, modify the `main.go` file:
+3. To customize the deployment, use CDK context parameters:
 
-- Change the schedule expression (e.g., `rate(30 minutes)`)
-- Specify regions to deploy to (default: all available regions)
-- Specify statuses to alert on (default: available and failed)
+```
+cdk deploy -c notification_email=your-email@example.com -c schedule_expression="rate(30 minutes)" -c status_to_monitor=failed,available
+```
+
+Or modify the `cdk.json` file:
+
+```json
+{
+  "app": "go mod download && go run main.go",
+  "context": {
+    "notification_email": "your-email@example.com",
+    "status_to_monitor": ["available", "failed"],
+    "schedule_expression": "rate(10 minutes)"
+  }
+}
+```
 
 ## Configuration
 
-- `ScheduleExpression`: Cron or rate expression for the EventBridge rule
-- `Regions`: List of AWS regions to monitor
-- `Status`: Snapshot statuses to receive alerts about
+- `notification_email`: Email address to receive snapshot notifications
+- `schedule_expression`: Cron or rate expression for the EventBridge rule (default: "rate(10 minutes)")
+- `status_to_monitor`: List of snapshot statuses to monitor (default: ["available", "failed"])
+- `Regions`: List of AWS regions to monitor (default: all enabled regions)
+
 
 ## Testing
 
