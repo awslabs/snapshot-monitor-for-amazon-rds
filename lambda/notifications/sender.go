@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"rds-backup-monitor/lambda/storage"
+	"rds-backup-monitor/lambda/types"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
@@ -25,16 +26,17 @@ func contains(slice []string, str string) bool {
 }
 
 func ProcessSnapshotChanges(ctx context.Context, filteredSnapshots []storage.SnapshotInfo,
-	processedSnapshots map[string]string, statusesToMonitor []string,
+	processedSnapshots map[string]string, appConfig types.Configuration,
 	region string, snsClient SNSClient, ddbClient storage.DDBClient) error {
 
 	var statusChanges []SnapshotStatusChange
+	var snapshotsToUpdate []storage.SnapshotInfo
 
 	for _, snapshot := range filteredSnapshots {
 		currentStatus := snapshot.Status
 		previousStatus, exists := processedSnapshots[snapshot.SnapshotID]
 
-		if contains(statusesToMonitor, currentStatus) {
+		if contains(appConfig.StatusesToMonitor, currentStatus) {
 			fmt.Printf("Checking snapshot %s in region %s\n", snapshot.SnapshotID, region)
 
 			if !exists || previousStatus != string(currentStatus) {
@@ -45,6 +47,7 @@ func ProcessSnapshotChanges(ctx context.Context, filteredSnapshots []storage.Sna
 					DBInstance:     snapshot.SnapshotID,
 					Region:         region,
 				})
+				snapshotsToUpdate = append(snapshotsToUpdate, snapshot)
 			}
 		}
 	}
@@ -61,16 +64,10 @@ func ProcessSnapshotChanges(ctx context.Context, filteredSnapshots []storage.Sna
 			return fmt.Errorf("unable to publish SNS message: %v", err)
 		}
 
-		for _, change := range statusChanges {
-			for _, snapshot := range filteredSnapshots {
-				if snapshot.SnapshotID == change.SnapshotID {
-					err = storage.UpdateSnapshotState(ctx, ddbClient, region, snapshot)
-					if err != nil {
-						return fmt.Errorf("failed to update snapshot state for %s: %v", change.SnapshotID, err)
-					}
-					break
-				}
-			}
+		// Update all snapshot states in a single batch operation
+		err = storage.BatchUpdateSnapshotStates(ctx, ddbClient, region, snapshotsToUpdate, appConfig.SnapshotAgeDays)
+		if err != nil {
+			return fmt.Errorf("failed to batch update snapshot states: %v", err)
 		}
 	}
 

@@ -60,10 +60,12 @@ func NewRdsBackupMonitorStack(scope constructs.Construct, id string, props *RdsB
 		Entry:   jsii.String("lambda"),
 		Timeout: awscdk.Duration_Seconds(jsii.Number(300)),
 		Environment: &map[string]*string{
-			"SNS_TOPIC_ARN":       topic.TopicArn(),
-			"REGIONS":             jsii.String(strings.Join(*props.Regions, ",")),
-			"STATUS":              jsii.String(strings.Join(*props.Status, ",")),
-			"DYNAMODB_TABLE_NAME": table.TableName(),
+			"SNS_TOPIC_ARN":        topic.TopicArn(),
+			"REGIONS":              jsii.String(strings.Join(*props.Regions, ",")),
+			"STATUS":               jsii.String(strings.Join(*props.Status, ",")),
+			"DYNAMODB_TABLE_NAME":  table.TableName(),
+			"SCHEDULE_EXPRESSION": props.ScheduleExpression,
+			"SNAPSHOT_AGE_DAYS":    jsii.String("7"), // Default to 7 days
 		},
 	})
 

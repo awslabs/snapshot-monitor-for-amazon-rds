@@ -12,8 +12,8 @@ import (
 )
 
 type DDBClient interface {
-	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 	Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
+	BatchWriteItem(ctx context.Context, params *dynamodb.BatchWriteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error)
 }
 
 func GetProcessedSnapshots(ctx context.Context, ddbClient DDBClient, region string) (map[string]string, error) {
@@ -53,19 +53,50 @@ func GetProcessedSnapshots(ctx context.Context, ddbClient DDBClient, region stri
 	return processedSnapshots, nil
 }
 
-func UpdateSnapshotState(ctx context.Context, ddbClient DDBClient, region string, snapshot SnapshotInfo) error {
-	expirationTime := time.Now().Add(7 * 24 * time.Hour)
-	_, err := ddbClient.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: aws.String(os.Getenv("DYNAMODB_TABLE_NAME")),
-		Item: map[string]ddbTypes.AttributeValue{
-			"pk":     &ddbTypes.AttributeValueMemberS{Value: region},
-			"sk":     &ddbTypes.AttributeValueMemberS{Value: snapshot.SnapshotID},
-			"status": &ddbTypes.AttributeValueMemberS{Value: snapshot.Status},
-			"ttl":    &ddbTypes.AttributeValueMemberN{Value: fmt.Sprintf("%d", expirationTime.Unix())},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("unable to update snapshot state in DynamoDB in region %s: %v", region, err)
+// BatchUpdateSnapshotStates updates multiple snapshot states at once using BatchWriteItem
+func BatchUpdateSnapshotStates(ctx context.Context, ddbClient DDBClient, region string, snapshots []SnapshotInfo, snapshotAgeDays int) error {
+	if len(snapshots) == 0 {
+		return nil
 	}
+
+	// DynamoDB BatchWriteItem can process up to 25 items at once
+	const batchSize = 25
+	expirationTime := time.Now().Add(time.Duration(snapshotAgeDays) * 24 * time.Hour)
+	tableName := os.Getenv("DYNAMODB_TABLE_NAME")
+
+	// Process snapshots in batches of 25
+	for i := 0; i < len(snapshots); i += batchSize {
+		end := i + batchSize
+		if end > len(snapshots) {
+			end = len(snapshots)
+		}
+
+		batch := snapshots[i:end]
+		writeRequests := make([]ddbTypes.WriteRequest, len(batch))
+
+		for j, snapshot := range batch {
+			writeRequests[j] = ddbTypes.WriteRequest{
+				PutRequest: &ddbTypes.PutRequest{
+					Item: map[string]ddbTypes.AttributeValue{
+						"pk":     &ddbTypes.AttributeValueMemberS{Value: region},
+						"sk":     &ddbTypes.AttributeValueMemberS{Value: snapshot.SnapshotID},
+						"status": &ddbTypes.AttributeValueMemberS{Value: snapshot.Status},
+						"ttl":    &ddbTypes.AttributeValueMemberN{Value: fmt.Sprintf("%d", expirationTime.Unix())},
+					},
+				},
+			}
+		}
+
+		_, err := ddbClient.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
+			RequestItems: map[string][]ddbTypes.WriteRequest{
+				tableName: writeRequests,
+			},
+		})
+
+		if err != nil {
+			return fmt.Errorf("unable to batch update snapshot states in DynamoDB for region %s: %v", region, err)
+		}
+	}
+
 	return nil
 }
