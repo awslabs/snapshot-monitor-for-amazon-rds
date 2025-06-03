@@ -21,6 +21,7 @@ type RdsBackupMonitorStackProps struct {
 	Regions            *[]string
 	Status             *[]string
 	NotificationEmail  *string
+	SnapshotAgeDays    *string
 }
 
 func NewRdsBackupMonitorStack(scope constructs.Construct, id string, props *RdsBackupMonitorStackProps) awscdk.Stack {
@@ -65,7 +66,7 @@ func NewRdsBackupMonitorStack(scope constructs.Construct, id string, props *RdsB
 			"STATUS":               jsii.String(strings.Join(*props.Status, ",")),
 			"DYNAMODB_TABLE_NAME":  table.TableName(),
 			"SCHEDULE_EXPRESSION": props.ScheduleExpression,
-			"SNAPSHOT_AGE_DAYS":    jsii.String("7"), // Default to 7 days
+			"SNAPSHOT_AGE_DAYS":    props.SnapshotAgeDays,
 		},
 	})
 

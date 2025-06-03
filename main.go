@@ -70,6 +70,15 @@ func main() {
 		}
 	}
 
+	// Get snapshot age days from context or use default
+	snapshotAgeDays := "7"
+	snapshotAgeContext := app.Node().TryGetContext(jsii.String("snapshot_age_days"))
+	if snapshotAgeContext != nil {
+		if snapshotAgeStr, ok := snapshotAgeContext.(string); ok && snapshotAgeStr != "" {
+			snapshotAgeDays = snapshotAgeStr
+		}
+	}
+
 	rds_backup_monitor.NewRdsBackupMonitorStack(app, "RdsBackupMonitorStack", &rds_backup_monitor.RdsBackupMonitorStackProps{
 		//Change based on your desired monitor frequency. Maximum granularity is 1 minute.
 		//See: https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-scheduled-rule-pattern.html#eb-rate-expressions
@@ -77,6 +86,7 @@ func main() {
 		Regions:            &regions,
 		Status:             &status,
 		NotificationEmail:  jsii.String(email),
+		SnapshotAgeDays:    jsii.String(snapshotAgeDays),
 	})
 
 	app.Synth(nil)

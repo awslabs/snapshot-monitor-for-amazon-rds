@@ -3,6 +3,7 @@
   "context": {
     "notification_email": "your-email@example.com",
     "status_to_monitor": ["available", "failed"],
-    "schedule_expression": "rate(10 minutes)"
+    "schedule_expression": "rate(10 minutes)",
+    "snapshot_age_days": "7"
   }
 }
