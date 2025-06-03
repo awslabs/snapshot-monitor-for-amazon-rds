@@ -7,6 +7,7 @@ import (
 	"rds-backup-monitor/lambda/backups"
 	"rds-backup-monitor/lambda/notifications"
 	"rds-backup-monitor/lambda/storage"
+	"rds-backup-monitor/lambda/types"
 	"strconv"
 	"strings"
 	"time"
@@ -18,17 +19,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 )
 
-type Configuration struct {
-	Regions          []string
-	StatusesToMonitor []string
-	ScheduleExpression string
-	SnapshotAgeDays   int
-}
-
 var (
 	ddbClient *dynamodb.Client
 	snsClient *sns.Client
-	appConfig Configuration
+	appConfig types.Configuration
 )
 
 func init() {
@@ -49,11 +43,11 @@ func init() {
 	}
 
 	// Initialize application configuration
-	appConfig = Configuration{
-		Regions:           strings.Split(os.Getenv("REGIONS"), ","),
-		StatusesToMonitor: strings.Split(os.Getenv("STATUS"), ","),
+	appConfig = types.Configuration{
+		Regions:            strings.Split(os.Getenv("REGIONS"), ","),
+		StatusesToMonitor:  strings.Split(os.Getenv("STATUS"), ","),
 		ScheduleExpression: os.Getenv("SCHEDULE_EXPRESSION"),
-		SnapshotAgeDays:   snapshotAgeDays,
+		SnapshotAgeDays:    snapshotAgeDays,
 	}
 
 	// Validate configuration
@@ -110,7 +104,8 @@ func handler(ctx context.Context) error {
 
 		// Compare with DynamoDB state and send summary report
 		filteredSnapshots := backups.ProcessSnapshots(snapshots, clusterSnapshots)
-		err = notifications.ProcessSnapshotChanges(ctx, filteredSnapshots, processedSnapshots, appConfig.StatusesToMonitor, region, snsClient, ddbClient)
+		err = notifications.ProcessSnapshotChanges(
+			ctx, filteredSnapshots, processedSnapshots, appConfig, region, snsClient, ddbClient)
 		if err != nil {
 			return fmt.Errorf("unable to process snapshots in region %s: %v", region, err)
 		}

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"rds-backup-monitor/lambda/storage"
+	"rds-backup-monitor/lambda/types"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
@@ -25,7 +26,7 @@ func contains(slice []string, str string) bool {
 }
 
 func ProcessSnapshotChanges(ctx context.Context, filteredSnapshots []storage.SnapshotInfo,
-	processedSnapshots map[string]string, statusesToMonitor []string,
+	processedSnapshots map[string]string, appConfig types.Configuration,
 	region string, snsClient SNSClient, ddbClient storage.DDBClient) error {
 
 	var statusChanges []SnapshotStatusChange
@@ -35,7 +36,7 @@ func ProcessSnapshotChanges(ctx context.Context, filteredSnapshots []storage.Sna
 		currentStatus := snapshot.Status
 		previousStatus, exists := processedSnapshots[snapshot.SnapshotID]
 
-		if contains(statusesToMonitor, currentStatus) {
+		if contains(appConfig.StatusesToMonitor, currentStatus) {
 			fmt.Printf("Checking snapshot %s in region %s\n", snapshot.SnapshotID, region)
 
 			if !exists || previousStatus != string(currentStatus) {
@@ -64,7 +65,7 @@ func ProcessSnapshotChanges(ctx context.Context, filteredSnapshots []storage.Sna
 		}
 
 		// Update all snapshot states in a single batch operation
-		err = storage.BatchUpdateSnapshotStates(ctx, ddbClient, region, snapshotsToUpdate)
+		err = storage.BatchUpdateSnapshotStates(ctx, ddbClient, region, snapshotsToUpdate, appConfig.SnapshotAgeDays)
 		if err != nil {
 			return fmt.Errorf("failed to batch update snapshot states: %v", err)
 		}

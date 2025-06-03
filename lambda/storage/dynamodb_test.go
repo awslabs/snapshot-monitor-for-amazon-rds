@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -112,7 +114,7 @@ func TestBatchUpdateSnapshotStates(t *testing.T) {
 	ctx := context.Background()
 	region := "us-west-2"
 	now := time.Now()
-	
+
 	// Set environment variables for tests
 	t.Setenv("DYNAMODB_TABLE_NAME", "test-table")
 	t.Setenv("SCHEDULE_EXPRESSION", "rate(10 minutes)")
@@ -193,23 +195,24 @@ func TestBatchUpdateSnapshotStates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset captured batch write for each test
 			tt.client.capturedBatchWrite = nil
-			
-			err := BatchUpdateSnapshotStates(ctx, tt.client, region, tt.snapshots)
+			snapshotAgeDays, _ := strconv.Atoi(os.Getenv("SNAPSHOT_AGE_DAYS"))
+
+			err := BatchUpdateSnapshotStates(ctx, tt.client, region, tt.snapshots, snapshotAgeDays)
 
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				
+
 				// For non-empty snapshots, verify the batch write was called correctly
 				if len(tt.snapshots) > 0 {
 					assert.NotNil(t, tt.client.capturedBatchWrite)
-					
+
 					// For large batches, verify it was split correctly
 					if len(tt.snapshots) > 25 {
 						// Should have been called at least once
 						assert.NotEmpty(t, tt.client.capturedBatchWrite.RequestItems)
-						
+
 						// Check that the table name is correct
 						tableName := "test-table"
 						_, exists := tt.client.capturedBatchWrite.RequestItems[tableName]

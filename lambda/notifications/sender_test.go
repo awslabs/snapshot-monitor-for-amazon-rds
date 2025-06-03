@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"rds-backup-monitor/lambda/storage"
+	"rds-backup-monitor/lambda/types"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -69,8 +70,13 @@ func TestContains(t *testing.T) {
 
 func TestProcessSnapshotChanges(t *testing.T) {
 	ctx := context.Background()
-	region := "us-west-2"
+	region := []string{"us-west-2"}
 	statusesToMonitor := []string{"available", "error"}
+	appConfig := types.Configuration{
+		Regions:           region,
+		StatusesToMonitor: statusesToMonitor,
+		SnapshotAgeDays:   7,
+	}
 
 	tests := []struct {
 		name               string
@@ -147,7 +153,7 @@ func TestProcessSnapshotChanges(t *testing.T) {
 			}
 
 			err := ProcessSnapshotChanges(ctx, tt.filteredSnapshots, tt.processedSnapshots,
-				statusesToMonitor, region, snsClient, ddbClient)
+				appConfig, region[0], snsClient, ddbClient)
 
 			if tt.wantErr {
 				assert.Error(t, err)

@@ -53,17 +53,15 @@ func GetProcessedSnapshots(ctx context.Context, ddbClient DDBClient, region stri
 	return processedSnapshots, nil
 }
 
-
-
 // BatchUpdateSnapshotStates updates multiple snapshot states at once using BatchWriteItem
-func BatchUpdateSnapshotStates(ctx context.Context, ddbClient DDBClient, region string, snapshots []SnapshotInfo) error {
+func BatchUpdateSnapshotStates(ctx context.Context, ddbClient DDBClient, region string, snapshots []SnapshotInfo, snapshotAgeDays int) error {
 	if len(snapshots) == 0 {
 		return nil
 	}
 
 	// DynamoDB BatchWriteItem can process up to 25 items at once
 	const batchSize = 25
-	expirationTime := time.Now().Add(7 * 24 * time.Hour)
+	expirationTime := time.Now().Add(time.Duration(snapshotAgeDays) * 24 * time.Hour)
 	tableName := os.Getenv("DYNAMODB_TABLE_NAME")
 
 	// Process snapshots in batches of 25
@@ -72,10 +70,10 @@ func BatchUpdateSnapshotStates(ctx context.Context, ddbClient DDBClient, region 
 		if end > len(snapshots) {
 			end = len(snapshots)
 		}
-		
+
 		batch := snapshots[i:end]
 		writeRequests := make([]ddbTypes.WriteRequest, len(batch))
-		
+
 		for j, snapshot := range batch {
 			writeRequests[j] = ddbTypes.WriteRequest{
 				PutRequest: &ddbTypes.PutRequest{
@@ -88,17 +86,17 @@ func BatchUpdateSnapshotStates(ctx context.Context, ddbClient DDBClient, region 
 				},
 			}
 		}
-		
+
 		_, err := ddbClient.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
 			RequestItems: map[string][]ddbTypes.WriteRequest{
 				tableName: writeRequests,
 			},
 		})
-		
+
 		if err != nil {
 			return fmt.Errorf("unable to batch update snapshot states in DynamoDB for region %s: %v", region, err)
 		}
 	}
-	
+
 	return nil
 }
